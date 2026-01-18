@@ -13,7 +13,7 @@ app.use(express.json());
 
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: "http://3.213.27.192:8080",
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type"],
     credentials: true, 
@@ -118,7 +118,7 @@ app.post("/v1/logout/", async(req,res)=>{
 
   req.session.destroy(err=>{
     if(err) return res.status(500).json({ success: false, message: err.message });
-    res.clearCookie("connect.sid"); 
+    res.clearCookie("seekvialove.sid"); 
     res.json({ success: true, message: "Logged out successfully" });
   })
 
