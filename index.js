@@ -24,7 +24,6 @@ const app = express();
 
 const corsOptions = {
   origin: [
-    "http://localhost:5173",
     "http://3.213.27.192:8080",
     "https://seekvialove.com"
   ],
