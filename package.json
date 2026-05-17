@@ -17,6 +17,7 @@
   },
   "homepage": "https://github.com/anand22981/api.seekvialove#readme",
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "express-session": "^1.18.2",

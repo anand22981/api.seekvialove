@@ -3,23 +3,48 @@ const connectDb = require("./config/dbconfig");
 const User = require("./models/user");
 const Service = require("./models/services");
 const Booking = require("./models/booking")
+const Review = require("./models/Review"); 
 const cors = require("cors");
 const session = require("express-session");
+const bcrypt = require("bcrypt");
 
 const app = express();
+
+
+
+
+// app.use(
+//   cors({
+//     origin: "http://3.213.27.192:8080",
+//     methods: ["GET", "POST", "PUT", "DELETE","PATCH"],
+//     allowedHeaders: ["Content-Type"],
+//     credentials: true, 
+//   })
+// );
+
+const corsOptions = {
+  origin: "http://localhost:5173",
+  credentials: true,
+  methods: ["GET","POST","PUT","DELETE","PATCH","OPTIONS"],
+
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization"
+  ]
+};
+
+
+
+/* ✅ THEN USE CORS */
+app.use(cors(corsOptions));
+
+
 
 app.use(express.json());
 
 
-app.use(
-  cors({
-    origin: "http://3.213.27.192:8080",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type"],
-    credentials: true, 
-  })
-);
-
+ 
+app.set("trust proxy", 1); 
 app.use(
   session({
     name: "seekvialove.sid",
@@ -28,6 +53,10 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
+       sameSite: "none",
+
+      /* required when sameSite none */
+      secure: false, 
       maxAge: 1000 * 60 * 60 * 24,
     },
   })
@@ -90,6 +119,7 @@ app.post("/v1/signin", async(req,res)=>{
     req.session.emailId = user.emailId;
     req.session.firstName = user.firstName;
     req.session.lastName = user.lastName;
+    req.session.role = user.role;
 
 
 
@@ -97,7 +127,8 @@ app.post("/v1/signin", async(req,res)=>{
       message:"Login Successfull",
       data:{
         userId: user._id,
-        emailId: user.emailId
+        emailId: user.emailId,
+        role: user.role,  
       }
     })
 
@@ -111,6 +142,8 @@ app.post("/v1/signin", async(req,res)=>{
    })
   }
 })
+
+
 
 //logout
 
@@ -134,7 +167,9 @@ app.get("/v1/checkSession", async (req, res) => {
         firstName: req.session.firstName,
         userId: req.session.userId,
         emailId: req.session.emailId,
-         lastName: req.session.lastName 
+         lastName: req.session.lastName,
+         role: req.session.role 
+         
       
       }
     });
@@ -294,6 +329,7 @@ app.get("/v1/getAllUserList", async (req, res) => {
 });
 
 
+
 app.delete("/v1/deleteUser", async (req, res) => {
   const UserId = req.body.userId;
 
@@ -304,6 +340,150 @@ app.delete("/v1/deleteUser", async (req, res) => {
     res.status(404).send("Something went wrong", error);
   }
 });
+
+//reviews
+// ⭐ GET ALL REVIEWS (Public)
+app.get("/v1/reviews", async (req, res) => {
+  try {
+
+    const reviews = await Review.find()
+      .populate("service", "name price") // get service name
+      .populate("user", "firstName")     // get reviewer name
+      .sort({ createdAt: -1 });
+
+    // ⭐ Calculate average rating
+    const totalReviews = reviews.length;
+    const avgRating =
+      totalReviews === 0
+        ? 0
+        : (
+            reviews.reduce((acc, item) => acc + item.rating, 0) /
+            totalReviews
+          ).toFixed(1);
+
+    res.status(200).json({
+      success: true,
+      totalReviews,
+      avgRating,
+      data: reviews,
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
+// ✅ POST review (ONLY after booking completed)
+app.post("/v1/reviews", async (req, res) => {
+  try {
+    // 🔐 Check login
+    if (!req.session.userId) {
+      return res.status(401).json({ message: "Login required" });
+    }
+
+    const { serviceId, message, rating, mode } = req.body;
+
+    // 🧪 Basic validation
+    if (!serviceId || !message || !rating || !mode) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    if (rating < 1 || rating > 5) {
+      return res.status(400).json({ message: "Rating must be 1-5" });
+    }
+
+   if (!["Chat", "Audio"].includes(mode)) {
+  return res.status(400).json({ message: "Invalid mode" });
+}
+
+    // 🔍 Check if booking exists & completed
+    const booking = await Booking.findOne({
+      user: req.session.userId,
+      service: serviceId,
+      isCompleted: true,
+      $or: [
+    { isReviewed: false },
+    { isReviewed: { $exists: false } }
+  ]
+    });
+
+    if (!booking) {
+      return res.status(400).json({
+        message: "You can review only after completing your booked session",
+      });
+    }
+
+    // ✅ Save review (FIXED ⭐)
+    const review = await Review.create({
+      user: req.session.userId,   // ⭐ IMPORTANT
+      service: serviceId,         // ⭐ IMPORTANT
+      name: req.session.firstName,
+      message,
+      rating,
+      mode,
+    });
+
+    // ✅ Mark booking reviewed
+    booking.isReviewed = true;
+    await booking.save();
+
+    res.status(201).json({
+      message: "Review submitted successfully",
+      data: review,
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
+
+//Admin
+
+app.get("/v1/admin/bookings", async (req, res) => {
+  try {
+    if (!req.session.userId || req.session.role !== "admin") {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    const bookings = await Booking.find()
+      .populate("service")
+      .populate("user");
+
+    res.json({ success: true, data: bookings });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.patch("/v1/admin/booking/complete/:id", async (req, res) => {
+  
+  try {
+    if (!req.session.userId || req.session.role !== "admin") {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    const booking = await Booking.findByIdAndUpdate(
+      req.params.id,
+      { $set: { isCompleted: true } }, 
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: "Completed ✅",
+      data: booking,
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
 
 connectDb()
   .then(() => {
