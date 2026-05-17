@@ -17,6 +17,7 @@ app.use(
   cors({
     origin: [
     "http://3.213.27.192:8080",
+    "http://3.213.27.192:7777",
     "https://seekvialove.com"
   ],
     methods: ["GET", "POST", "PUT", "DELETE","PATCH","OPTIONS"],
