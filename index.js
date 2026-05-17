@@ -13,14 +13,14 @@ const app = express();
 
 
 
-// app.use(
-//   cors({
-//     origin: "http://3.213.27.192:8080",
-//     methods: ["GET", "POST", "PUT", "DELETE","PATCH"],
-//     allowedHeaders: ["Content-Type"],
-//     credentials: true, 
-//   })
-// );
+app.use(
+  cors({
+    origin: "http://3.213.27.192:8080",
+    methods: ["GET", "POST", "PUT", "DELETE","PATCH"],
+    allowedHeaders: ["Content-Type"],
+    credentials: true, 
+  })
+);
 
 const corsOptions = {
   origin: "http://localhost:5173",
