@@ -23,15 +23,18 @@ const app = express();
 // );
 
 const corsOptions = {
-  origin: "http://3.213.27.192:8080",
+  origin: [
+    "http://localhost:5173",
+    "http://3.213.27.192:8080",
+    "https://seekvialove.com"
+  ],
   credentials: true,
-  methods: ["GET","POST","PUT","DELETE","PATCH","OPTIONS"],
-
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization"
-  ]
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 };
+
+app.use(cors(corsOptions));
+
 
 
 
