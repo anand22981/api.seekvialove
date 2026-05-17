@@ -24,7 +24,7 @@ const app = express();
 
 const corsOptions = {
   origin: [
-    "http://3.213.27.192:8080",
+    "http://3.213.27.192:7777",
     "https://seekvialove.com"
   ],
   credentials: true,
