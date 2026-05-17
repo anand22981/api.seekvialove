@@ -13,26 +13,26 @@ const app = express();
 
 
 
-// app.use(
-//   cors({
-//     origin: "http://3.213.27.192:8080",
-//     methods: ["GET", "POST", "PUT", "DELETE","PATCH","OPTIONS"],
-//     allowedHeaders: ["Content-Type","Authorization"],
-//     credentials: true, 
-//   })
-// );
+app.use(
+  cors({
+    origin: "http://3.213.27.192:8080",
+    methods: ["GET", "POST", "PUT", "DELETE","PATCH","OPTIONS"],
+    allowedHeaders: ["Content-Type","Authorization"],
+    credentials: true, 
+  })
+);
 
-const corsOptions = {
-  origin: [
-    "http://3.213.27.192:7777",
-    "https://seekvialove.com"
-  ],
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-};
+// const corsOptions = {
+//   origin: [
+//     "http://3.213.27.192:7777",
+//     "https://seekvialove.com"
+//   ],
+//   credentials: true,
+//   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+//   allowedHeaders: ["Content-Type", "Authorization"]
+// };
 
-app.use(cors(corsOptions));
+// app.use(cors(corsOptions));
 
 
 
