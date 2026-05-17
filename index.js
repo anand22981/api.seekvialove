@@ -15,7 +15,10 @@ const app = express();
 
 app.use(
   cors({
-    origin: "http://3.213.27.192:8080",
+    origin: [
+    "http://3.213.27.192:8080",
+    "https://seekvialove.com"
+  ],
     methods: ["GET", "POST", "PUT", "DELETE","PATCH","OPTIONS"],
     allowedHeaders: ["Content-Type","Authorization"],
     credentials: true, 
