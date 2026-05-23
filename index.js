@@ -3,7 +3,7 @@ const connectDb = require("./config/dbconfig");
 const User = require("./models/user");
 const Service = require("./models/services");
 const Booking = require("./models/booking")
-const Review = require("./models/Review"); 
+const Review = require("./models/review");
 const cors = require("cors");
 const session = require("express-session");
 const bcrypt = require("bcrypt");
@@ -17,7 +17,8 @@ app.use(
   cors({
     origin: [
     "http://3.213.27.192:8080",
-    "https://seekvialove.com"
+    // "https://seekvialove.com",
+    "http://localhost:5173"
   ],
     methods: ["GET", "POST", "PUT", "DELETE","PATCH","OPTIONS"],
     allowedHeaders: ["Content-Type","Authorization"],
@@ -40,8 +41,8 @@ app.use(
 
 
 
-/* ✅ THEN USE CORS */
-app.use(cors(corsOptions));
+/* ✅ THEN USE CORS 
+app.use(cors(corsOptions)); */
 
 
 
@@ -346,83 +347,110 @@ app.delete("/v1/deleteUser", async (req, res) => {
   }
 });
 
-//reviews
-// ⭐ GET ALL REVIEWS (Public)
+// ═══════════════════════════════════════════════════════
+// REVIEWS
+// ═══════════════════════════════════════════════════════
+
+// ⭐ GET ALL REVIEWS (Public — with filtering & pagination)
 app.get("/v1/reviews", async (req, res) => {
   try {
+    const { serviceId, rating, mode, page = 1, limit = 10 } = req.query;
 
-    const reviews = await Review.find()
-      .populate("service", "name price") // get service name
-      .populate("user", "firstName")     // get reviewer name
-      .sort({ createdAt: -1 });
+    // Build filter object
+    const filter = {};
+    if (serviceId) filter.service = serviceId;
+    if (rating) filter.rating = Number(rating);
+    if (mode) filter.mode = mode;
 
-    // ⭐ Calculate average rating
-    const totalReviews = reviews.length;
-    const avgRating =
-      totalReviews === 0
-        ? 0
-        : (
-            reviews.reduce((acc, item) => acc + item.rating, 0) /
-            totalReviews
-          ).toFixed(1);
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [reviews, totalCount] = await Promise.all([
+      Review.find(filter)
+        .populate("service", "name price")
+        .populate("user", "firstName")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum),
+      Review.countDocuments(filter),
+    ]);
+
+    // Calculate average rating (overall, not just page)
+    const aggregation = await Review.aggregate([
+      { $group: { _id: null, avgRating: { $avg: "$rating" }, totalReviews: { $sum: 1 } } },
+    ]);
+
+    const avgRating = aggregation.length > 0 ? aggregation[0].avgRating.toFixed(1) : "0.0";
+    const totalReviews = aggregation.length > 0 ? aggregation[0].totalReviews : 0;
 
     res.status(200).json({
       success: true,
       totalReviews,
       avgRating,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(totalCount / limitNum),
       data: reviews,
     });
-
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
-
-// ✅ POST review (ONLY after booking completed)
+// ✅ POST review (ONLY after booking completed — with duplicate guard)
 app.post("/v1/reviews", async (req, res) => {
   try {
-    // 🔐 Check login
     if (!req.session.userId) {
-      return res.status(401).json({ message: "Login required" });
+      return res.status(401).json({ success: false, message: "Login required" });
     }
 
     const { serviceId, message, rating, mode } = req.body;
 
-    // 🧪 Basic validation
     if (!serviceId || !message || !rating || !mode) {
-      return res.status(400).json({ message: "All fields are required" });
+      return res.status(400).json({ success: false, message: "All fields are required" });
     }
 
     if (rating < 1 || rating > 5) {
-      return res.status(400).json({ message: "Rating must be 1-5" });
+      return res.status(400).json({ success: false, message: "Rating must be 1-5" });
     }
 
-   if (!["Chat", "Audio"].includes(mode)) {
-  return res.status(400).json({ message: "Invalid mode" });
-}
+    if (!["Chat", "Audio"].includes(mode)) {
+      return res.status(400).json({ success: false, message: "Invalid mode. Must be Chat or Audio" });
+    }
 
-    // 🔍 Check if booking exists & completed
+    // 🔍 Duplicate guard — check if user already reviewed this service
+    const existingReview = await Review.findOne({
+      user: req.session.userId,
+      service: serviceId,
+    });
+
+    if (existingReview) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already reviewed this service",
+      });
+    }
+
+    // 🔍 Check if booking exists & completed & not yet reviewed
     const booking = await Booking.findOne({
       user: req.session.userId,
       service: serviceId,
       isCompleted: true,
-      $or: [
-    { isReviewed: false },
-    { isReviewed: { $exists: false } }
-  ]
+      isReviewed: { $ne: true },
     });
 
     if (!booking) {
       return res.status(400).json({
+        success: false,
         message: "You can review only after completing your booked session",
       });
     }
 
-    // ✅ Save review (FIXED ⭐)
-    const review = await Review.create({
-      user: req.session.userId,   // ⭐ IMPORTANT
-      service: serviceId,         // ⭐ IMPORTANT
+    // ✅ Save review
+    const newReview = await Review.create({
+      user: req.session.userId,
+      service: serviceId,
       name: req.session.firstName,
       message,
       rating,
@@ -434,18 +462,168 @@ app.post("/v1/reviews", async (req, res) => {
     await booking.save();
 
     res.status(201).json({
+      success: true,
       message: "Review submitted successfully",
-      data: review,
+      data: newReview,
     });
-
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ✏️ PATCH /v1/reviews/:id — Update own review
+app.patch("/v1/reviews/:id", async (req, res) => {
+  try {
+    if (!req.session.userId) {
+      return res.status(401).json({ success: false, message: "Login required" });
+    }
+
+    const { message, rating, mode } = req.body;
+
+    // Find review and verify ownership
+    const review = await Review.findById(req.params.id);
+    if (!review) {
+      return res.status(404).json({ success: false, message: "Review not found" });
+    }
+
+    if (review.user.toString() !== req.session.userId) {
+      return res.status(403).json({ success: false, message: "You can only edit your own review" });
+    }
+
+    // Build update object (only allow specified fields)
+    const updateFields = {};
+    if (message !== undefined) updateFields.message = message;
+    if (rating !== undefined) {
+      if (rating < 1 || rating > 5) {
+        return res.status(400).json({ success: false, message: "Rating must be 1-5" });
+      }
+      updateFields.rating = rating;
+    }
+    if (mode !== undefined) {
+      if (!["Chat", "Audio"].includes(mode)) {
+        return res.status(400).json({ success: false, message: "Invalid mode" });
+      }
+      updateFields.mode = mode;
+    }
+
+    const updatedReview = await Review.findByIdAndUpdate(req.params.id, updateFields, { new: true });
+
+    res.status(200).json({
+      success: true,
+      message: "Review updated successfully",
+      data: updatedReview,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 🗑️ DELETE /v1/reviews/:id — Delete own review & reset booking isReviewed
+app.delete("/v1/reviews/:id", async (req, res) => {
+  try {
+    if (!req.session.userId) {
+      return res.status(401).json({ success: false, message: "Login required" });
+    }
+
+    const review = await Review.findById(req.params.id);
+    if (!review) {
+      return res.status(404).json({ success: false, message: "Review not found" });
+    }
+
+    if (review.user.toString() !== req.session.userId) {
+      return res.status(403).json({ success: false, message: "You can only delete your own review" });
+    }
+
+    // Reset the associated booking's isReviewed flag
+    await Booking.findOneAndUpdate(
+      { user: review.user, service: review.service },
+      { isReviewed: false }
+    );
+
+    await Review.findByIdAndDelete(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      message: "Review deleted successfully",
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
 
 
-//Admin
+// ═══════════════════════════════════════════════════════
+// ADMIN — REVIEW MANAGEMENT
+// ═══════════════════════════════════════════════════════
+
+// 👑 Admin: Get all reviews (with user details)
+app.get("/v1/admin/reviews", async (req, res) => {
+  try {
+    if (!req.session.userId || req.session.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [reviews, totalCount] = await Promise.all([
+      Review.find()
+        .populate("service", "name price")
+        .populate("user", "firstName lastName emailId")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum),
+      Review.countDocuments(),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(totalCount / limitNum),
+      totalReviews: totalCount,
+      data: reviews,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 👑 Admin: Delete any review
+app.delete("/v1/admin/reviews/:id", async (req, res) => {
+  try {
+    if (!req.session.userId || req.session.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    const review = await Review.findById(req.params.id);
+    if (!review) {
+      return res.status(404).json({ success: false, message: "Review not found" });
+    }
+
+    // Reset the associated booking's isReviewed flag
+    await Booking.findOneAndUpdate(
+      { user: review.user, service: review.service },
+      { isReviewed: false }
+    );
+
+    await Review.findByIdAndDelete(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      message: "Review deleted by admin",
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// ADMIN — BOOKINGS
+// ═══════════════════════════════════════════════════════
 
 app.get("/v1/admin/bookings", async (req, res) => {
   try {
