@@ -776,9 +776,10 @@ app.patch("/v1/admin/booking/complete/:id", async (req, res) => {
 connectDb()
   .then(() => {
     console.log("db connected successfully");
-    app.listen(7777, "0.0.0.0", () => {
-  console.log("Server running on port 7777");
+  app.listen(7777, () => {
+      console.log("hello");
     });
+   
   })
   .catch((error) => {
     console.log("db connection failed", error);
