@@ -10,47 +10,21 @@ const bcrypt = require("bcrypt");
 
 const app = express();
 
-
-
-
 app.use(
   cors({
     origin: [
     "http://3.213.27.192:8080",
-    // "https://seekvialove.com",
     "http://localhost:5173"
   ],
     methods: ["GET", "POST", "PUT", "DELETE","PATCH","OPTIONS"],
-    allowedHeaders: ["Content-Type","Authorization"],
-    credentials: true, 
+    allowedHeaders: ["Content-Type","Authorization", "X-Session-Id"],
+    credentials: true,
   })
 );
 
-// const corsOptions = {
-//   origin: [
-//     "http://3.213.27.192:7777",
-//     "https://seekvialove.com"
-//   ],
-//   credentials: true,
-//   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-//   allowedHeaders: ["Content-Type", "Authorization"]
-// };
-
-// app.use(cors(corsOptions));
-
-
-
-
-/* ✅ THEN USE CORS 
-app.use(cors(corsOptions)); */
-
-
-
 app.use(express.json());
 
-
- 
-app.set("trust proxy", 1); 
+app.set("trust proxy", 1);
 app.use(
   session({
     name: "seekvialove.sid",
@@ -59,25 +33,62 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-       sameSite: "none",
-
-      /* required when sameSite none */
-      secure: false, 
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      secure: process.env.NODE_ENV === "production" ? true : false,
       maxAge: 1000 * 60 * 60 * 24,
     },
   })
 );
 
+// ─── Middleware to restore session from X-Session-Id header ───
+// This runs AFTER express-session middleware, so req.session exists but may be empty/new
+app.use((req, res, next) => {
+  const sessionId = req.headers['x-session-id'];
+  
+  // If X-Session-Id header is provided, ALWAYS try to restore from it
+  // This takes precedence over cookie-based session
+  if (sessionId) {
+    const sessionStore = req.sessionStore;
+    sessionStore.get(sessionId, (err, session) => {
+      if (!err && session && session.userId) {
+        // Restore all session data from the stored session
+        req.session.userId = session.userId;
+        req.session.emailId = session.emailId;
+        req.session.firstName = session.firstName;
+        req.session.lastName = session.lastName;
+        req.session.role = session.role;
+      }
+      next();
+    });
+  } else {
+    // No X-Session-Id header, use cookie-based session (default express-session behavior)
+    next();
+  }
+});
+
+// ─── Auth middleware: require login ───
+const requireLogin = (req, res, next) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ success: false, message: "Login required" });
+  }
+  next();
+};
+
+// ─── Auth middleware: require admin ───
+const requireAdmin = (req, res, next) => {
+  if (!req.session.userId || req.session.role !== "admin") {
+    return res.status(403).json({ success: false, message: "Unauthorized" });
+  }
+  next();
+};
 
 //SignUp
-
 app.post("/v1/signup", async (req, res) => {
   try {
     const { emailId } = req.body;
     const existingUser = await User.findOne({ emailId });
 
     if (existingUser) {
-      // Stop execution after sending response
       return res.status(200).json({ message: "User already exists" });
     }
 
@@ -91,14 +102,10 @@ app.post("/v1/signup", async (req, res) => {
 });
 
 //Signin
-
 app.post("/v1/signin", async(req,res)=>{
- 
   try {
-
-    console.log("req.body:", req.body);
     const {emailId, password} = req.body;
-     
+
     if(! emailId|| !password){
      return  res.status(400).json({
         success:false,
@@ -114,7 +121,6 @@ app.post("/v1/signin", async(req,res)=>{
     }
 
     if(user.password !== password){
-
       return res.status(401).json({
         success:false,
         message:"Invalid email or password"
@@ -127,21 +133,17 @@ app.post("/v1/signin", async(req,res)=>{
     req.session.lastName = user.lastName;
     req.session.role = user.role;
 
-
-
     res.status(200).json({
+      loggedIn: true,
       message:"Login Successfull",
+      sessionID: req.sessionID,
       data:{
         userId: user._id,
         emailId: user.emailId,
-        role: user.role,  
+        role: user.role,
       }
     })
-
-
-    
   } catch (error) {
-    
    return  res.status(500).json({
     success:false,
     message: error.message
@@ -149,22 +151,16 @@ app.post("/v1/signin", async(req,res)=>{
   }
 })
 
-
-
 //logout
-
 app.post("/v1/logout/", async(req,res)=>{
-
   req.session.destroy(err=>{
     if(err) return res.status(500).json({ success: false, message: err.message });
-    res.clearCookie("seekvialove.sid"); 
+    res.clearCookie("seekvialove.sid");
     res.json({ success: true, message: "Logged out successfully" });
   })
-
 })
 
 //check session
-
 app.get("/v1/checkSession", async (req, res) => {
   if (req.session.userId) {
     res.json({
@@ -174,9 +170,7 @@ app.get("/v1/checkSession", async (req, res) => {
         userId: req.session.userId,
         emailId: req.session.emailId,
          lastName: req.session.lastName,
-         role: req.session.role 
-         
-      
+         role: req.session.role
       }
     });
   } else {
@@ -184,11 +178,7 @@ app.get("/v1/checkSession", async (req, res) => {
   }
 });
 
-
 app.patch('/v1/infoUpdate/:userID', async (req, res) => {
-
-
-
   try {
     const userID = req.params.userID
     const data = req.body
@@ -200,11 +190,9 @@ app.patch('/v1/infoUpdate/:userID', async (req, res) => {
     }
     const user = await User.findByIdAndUpdate(userID, data)
     res.send("user update successfully")
-
   } catch (error) {
     res.status(400).send("Update Failed" + error.message)
   }
-
 })
 
 app.get("/v1/serviceList", async (req, res) => {
@@ -217,7 +205,6 @@ app.get("/v1/serviceList", async (req, res) => {
 });
 
 app.post("/v1/serviceList", async (req, res) => {
-
   try {
     const service = new Service(req.body);
     await service.save();
@@ -230,77 +217,64 @@ app.post("/v1/serviceList", async (req, res) => {
   }
 });
 
-// booking
+// ═══════════════════════════════════════════════════════
+// BOOKINGS
+// ═══════════════════════════════════════════════════════
 
 app.post("/v1/booking", async (req, res) => {
-
   try {
-  
-
      if (!req.session.userId) {
-      return res.status(401).json({ success: false, message: "Please login first" });
-    }
+       return res.status(401).json({ success: false, message: "Please login first" });
+     }
 
-    const { serviceId } = req.body;
+     const { serviceId } = req.body;
 
-    if (!serviceId) {
-      return res.status(400).json({
-        success: false,
-        message: "userId and serviceId are required"
-      })
-    }
+     if (!serviceId) {
+       return res.status(400).json({
+         success: false,
+         message: "serviceId is required"
+       })
+     }
 
+     const service = await Service.findById(serviceId)
+     if(!service){
+       return res.status(400).json({
+         message:"service not found"
+       })
+     }
 
-    const service = await Service.findById(serviceId)
-    if(!service){
-      return res.status(400).json({
-        message:"service not found"
-      })
-    }
+     const booking = await Booking.create({
+       user: req.session.userId,
+       service: serviceId
+     })
 
-    const booking = await Booking.create({
-      user: req.session.userId,
-      service: serviceId
-    })
-
-
-
-
-    res.status(201).json({
-      success: true,
-      message: "Service booked successfully",
-      data:booking
-    });
-
-
-  } catch (error) {
-
-    res.status(500).json({
-      success: false,
-      message:"server error",
-      error: error.message
-    });
-
-  }
-
+     res.status(201).json({
+       success: true,
+       message: "Service booked successfully",
+       data:booking
+     });
+   } catch (error) {
+     res.status(500).json({
+       success: false,
+       message:"server error",
+       error: error.message
+     });
+   }
 })
 
 app.get("/v1/booking", async(req,res)=>{
-
   try{
-
     if (!req.session.userId) {
       return res.status(401).json({ success: false, message: "Please login first" });
     }
-    
-   const bookings = await Booking.find({ user: req.session.userId })
+
+    const bookings = await Booking.find({ user: req.session.userId })
                                   .populate("service");
 
     res.status(200).json({
       success:true,
       data:bookings
     })
-
   }catch(error){
     res.status(500).json({
       message:error.message
@@ -308,10 +282,102 @@ app.get("/v1/booking", async(req,res)=>{
   }
 })
 
+// 🔍 DEBUG: Check bookings by email (for debugging dtripti235@gmail.com issue)
+app.get("/v1/debug/bookings-by-email/:email", async (req, res) => {
+  try {
+    const email = req.params.email;
+    console.log("DEBUG /v1/debug/bookings-by-email - Email:", email);
+    
+    const user = await User.findOne({ emailId: email });
+    if (!user) {
+      console.log("DEBUG - User not found for email:", email);
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    
+    console.log("DEBUG - Found user:", user._id, user.emailId);
+    
+    const bookings = await Booking.find({ user: user._id })
+                                  .populate("service");
+    
+    console.log("DEBUG - Found bookings for user:", bookings.length);
+    
+    res.status(200).json({
+      success: true,
+      user: { id: user._id, email: user.emailId, firstName: user.firstName },
+      bookingsCount: bookings.length,
+      data: bookings
+    });
+  } catch (error) {
+    console.error("DEBUG /v1/debug/bookings-by-email - Error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+})
 
+// 🔍 Check if user can review a specific booking
+app.get("/v1/booking/:id/can-review", async (req, res) => {
+  try {
+    if (!req.session.userId) {
+      return res.status(401).json({ success: false, message: "Please login first" });
+    }
 
+    const booking = await Booking.findById(req.params.id).populate("service");
 
-// user
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    // Check ownership
+    const bookingUserId = booking.user?.toString();
+    if (bookingUserId !== req.session.userId) {
+      return res.status(403).json({
+        success: false,
+        canReview: false,
+        reason: "You can only review your own booked sessions",
+      });
+    }
+
+    // Check if completed by admin
+    if (!booking.isCompleted) {
+      return res.status(200).json({
+        success: true,
+        canReview: false,
+        reason: "You can review only after the admin marks your session as completed",
+        isCompleted: false,
+      });
+    }
+
+    // Check if already reviewed
+    if (booking.isReviewed) {
+      return res.status(200).json({
+        success: true,
+        canReview: false,
+        reason: "You have already reviewed this session",
+        isReviewed: true,
+      });
+    }
+
+    // All checks passed - user can review
+    res.status(200).json({
+      success: true,
+      canReview: true,
+      booking: {
+        id: booking._id,
+        service: booking.service,
+        isCompleted: booking.isCompleted,
+        isReviewed: booking.isReviewed,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// USER
+// ═══════════════════════════════════════════════════════
 
 app.get("/v1/userList", async (req, res) => {
   const userEmail = req.body.emailId;
@@ -334,11 +400,8 @@ app.get("/v1/getAllUserList", async (req, res) => {
   }
 });
 
-
-
 app.delete("/v1/deleteUser", async (req, res) => {
   const UserId = req.body.userId;
-
   try {
     const user = await User.findByIdAndDelete(UserId);
     res.send(" user deleted");
@@ -368,8 +431,8 @@ app.get("/v1/reviews", async (req, res) => {
 
     const [reviews, totalCount] = await Promise.all([
       Review.find(filter)
-        .populate("service", "name price")
-        .populate("user", "firstName")
+        .populate("service", "title price image")
+        .populate("user", "firstName emailId")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum),
@@ -398,17 +461,21 @@ app.get("/v1/reviews", async (req, res) => {
   }
 });
 
-// ✅ POST review (ONLY after booking completed — with duplicate guard)
+// ✅ POST review — only for the user's OWN completed booking
+//    A user can only review a booking that:
+//      1) belongs to them
+//      2) has been marked as completed by admin
+//      3) has not been reviewed yet
 app.post("/v1/reviews", async (req, res) => {
   try {
     if (!req.session.userId) {
       return res.status(401).json({ success: false, message: "Login required" });
     }
 
-    const { serviceId, message, rating, mode } = req.body;
+    const { bookingId, serviceId, message, rating, mode } = req.body;
 
     if (!serviceId || !message || !rating || !mode) {
-      return res.status(400).json({ success: false, message: "All fields are required" });
+      return res.status(400).json({ success: false, message: "serviceId, message, rating, and mode are required" });
     }
 
     if (rating < 1 || rating > 5) {
@@ -419,45 +486,70 @@ app.post("/v1/reviews", async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid mode. Must be Chat or Audio" });
     }
 
-    // 🔍 Duplicate guard — check if user already reviewed this service
-    const existingReview = await Review.findOne({
-      user: req.session.userId,
-      service: serviceId,
-    });
-
-    if (existingReview) {
-      return res.status(400).json({
-        success: false,
-        message: "You have already reviewed this service",
-      });
+    // 🔍 Find the SPECIFIC booking and verify it belongs to this user
+    let booking;
+    if (bookingId) {
+      // If bookingId is provided, find by ID
+      booking = await Booking.findById(bookingId).populate("service");
+    } else {
+      // If bookingId is not provided, find the user's most recent completed, unreviewed booking for this service
+      booking = await Booking.findOne({
+        user: req.session.userId,
+        service: serviceId,
+        isCompleted: true,
+        isReviewed: false
+      }).sort({ createdAt: -1 }).populate("service");
     }
-
-    // 🔍 Check if booking exists & completed & not yet reviewed
-    const booking = await Booking.findOne({
-      user: req.session.userId,
-      service: serviceId,
-      isCompleted: true,
-      isReviewed: { $ne: true },
-    });
 
     if (!booking) {
-      return res.status(400).json({
+      return res.status(404).json({ success: false, message: "No reviewable booking found. Make sure the booking is completed and not yet reviewed." });
+    }
+
+    // 🔒 Ownership check: user can only review their OWN booking
+    const bookingUserId = booking.user?.toString();
+    if (bookingUserId !== req.session.userId) {
+      return res.status(403).json({
         success: false,
-        message: "You can review only after completing your booked session",
+        message: "You can only review your own booked sessions",
       });
     }
 
-    // ✅ Save review
+    // 🔗 Validate serviceId matches the booking's service
+    if (booking.service._id.toString() !== serviceId) {
+      return res.status(400).json({
+        success: false,
+        message: "Service ID does not match the booked service",
+      });
+    }
+
+    // ⏳ Booking must be marked completed by admin
+    if (!booking.isCompleted) {
+      return res.status(400).json({
+        success: false,
+        message: "You can review only after the admin marks your session as completed",
+      });
+    }
+
+    // 🚫 Booking must not already have a review
+    if (booking.isReviewed) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already reviewed this session",
+      });
+    }
+
+    // ✅ Save review — link to specific booking
     const newReview = await Review.create({
       user: req.session.userId,
       service: serviceId,
+      booking: booking._id,
       name: req.session.firstName,
       message,
       rating,
       mode,
     });
 
-    // ✅ Mark booking reviewed
+    // ✅ Mark THIS specific booking as reviewed
     booking.isReviewed = true;
     await booking.save();
 
@@ -486,7 +578,9 @@ app.patch("/v1/reviews/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "Review not found" });
     }
 
-    if (review.user.toString() !== req.session.userId) {
+    // Handle both populated ({ _id, firstName }) and unpopulated (ObjectId) review.user
+    const reviewUserId = review.user?._id ? review.user._id.toString() : review.user.toString();
+    if (reviewUserId !== req.session.userId) {
       return res.status(403).json({ success: false, message: "You can only edit your own review" });
     }
 
@@ -518,7 +612,7 @@ app.patch("/v1/reviews/:id", async (req, res) => {
   }
 });
 
-// 🗑️ DELETE /v1/reviews/:id — Delete own review & reset booking isReviewed
+// 🗑️ DELETE /v1/reviews/:id — Delete own review & reset THE SPECIFIC booking's isReviewed flag
 app.delete("/v1/reviews/:id", async (req, res) => {
   try {
     if (!req.session.userId) {
@@ -530,15 +624,22 @@ app.delete("/v1/reviews/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "Review not found" });
     }
 
-    if (review.user.toString() !== req.session.userId) {
+    // Handle both populated and unpopulated review.user
+    const reviewUserId = review.user?._id ? review.user._id.toString() : review.user.toString();
+    if (reviewUserId !== req.session.userId) {
       return res.status(403).json({ success: false, message: "You can only delete your own review" });
     }
 
-    // Reset the associated booking's isReviewed flag
-    await Booking.findOneAndUpdate(
-      { user: review.user, service: review.service },
-      { isReviewed: false }
-    );
+    // 🔄 Reset THE SPECIFIC booking's isReviewed flag (using review.booking)
+    if (review.booking) {
+      await Booking.findByIdAndUpdate(review.booking, { isReviewed: false });
+    } else {
+      // Fallback for older reviews without booking ref
+      await Booking.findOneAndUpdate(
+        { user: review.user, service: review.service },
+        { isReviewed: false }
+      );
+    }
 
     await Review.findByIdAndDelete(req.params.id);
 
@@ -551,8 +652,6 @@ app.delete("/v1/reviews/:id", async (req, res) => {
   }
 });
 
-
-
 // ═══════════════════════════════════════════════════════
 // ADMIN — REVIEW MANAGEMENT
 // ═══════════════════════════════════════════════════════
@@ -564,6 +663,7 @@ app.get("/v1/admin/reviews", async (req, res) => {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
+  
     const { page = 1, limit = 20 } = req.query;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
@@ -604,11 +704,16 @@ app.delete("/v1/admin/reviews/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "Review not found" });
     }
 
-    // Reset the associated booking's isReviewed flag
-    await Booking.findOneAndUpdate(
-      { user: review.user, service: review.service },
-      { isReviewed: false }
-    );
+    // Reset THE SPECIFIC booking's isReviewed flag (using review.booking)
+    if (review.booking) {
+      await Booking.findByIdAndUpdate(review.booking, { isReviewed: false });
+    } else {
+      // Fallback for older reviews without booking ref
+      await Booking.findOneAndUpdate(
+        { user: review.user, service: review.service },
+        { isReviewed: false }
+      );
+    }
 
     await Review.findByIdAndDelete(req.params.id);
 
@@ -643,7 +748,7 @@ app.get("/v1/admin/bookings", async (req, res) => {
 });
 
 app.patch("/v1/admin/booking/complete/:id", async (req, res) => {
-  
+   
   try {
     if (!req.session.userId || req.session.role !== "admin") {
       return res.status(403).json({ message: "Unauthorized" });
@@ -653,7 +758,7 @@ app.patch("/v1/admin/booking/complete/:id", async (req, res) => {
       req.params.id,
       { $set: { isCompleted: true } }, 
       { new: true }
-    );
+    ).populate("service").populate("user");
 
     res.json({
       success: true,

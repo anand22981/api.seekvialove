@@ -14,6 +14,13 @@ const reviewSchema = new mongoose.Schema(
       required: true,
     },
 
+    // 🔗 Tie review to a specific booking (each completed booking can have one review)
+    booking: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Booking",
+      required: false,
+    },
+
     name: {
       type: String,
       required: true,
