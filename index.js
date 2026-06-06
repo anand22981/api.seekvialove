@@ -14,7 +14,7 @@ app.use(
   cors({
     origin: [
     "http://3.213.27.192:8080",
-    "http://localhost:5173"
+    "https://seekvialove.com"
   ],
     methods: ["GET", "POST", "PUT", "DELETE","PATCH","OPTIONS"],
     allowedHeaders: ["Content-Type","Authorization", "X-Session-Id"],
