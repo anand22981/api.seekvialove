@@ -542,7 +542,7 @@ app.post("/v1/reviews", async (req, res) => {
     const newReview = await Review.create({
       user: req.session.userId,
       service: serviceId,
-      booking: booking._id,
+      booking: bookingId,
       name: req.session.firstName,
       message,
       rating,
@@ -776,8 +776,8 @@ app.patch("/v1/admin/booking/complete/:id", async (req, res) => {
 connectDb()
   .then(() => {
     console.log("db connected successfully");
-    app.listen(7777, () => {
-      console.log("hello");
+    app.listen(7777, "0.0.0.0", () => {
+  console.log("Server running on port 7777");
     });
   })
   .catch((error) => {
