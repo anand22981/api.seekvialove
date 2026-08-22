@@ -178,20 +178,42 @@ app.get("/v1/checkSession", async (req, res) => {
   }
 });
 
+// GET user profile
+app.get("/v1/profile", async (req, res) => {
+  try {
+    if (!req.session.userId) {
+      return res.status(401).json({ success: false, message: "Login required" });
+    }
+
+    const user = await User.findById(req.session.userId).select("-password");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: user,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// UPDATE user profile
 app.patch('/v1/infoUpdate/:userID', async (req, res) => {
   try {
     const userID = req.params.userID
     const data = req.body
-    const allowedUpdate = ['birthPlace', 'birthTime', 'password'];
+    const allowedUpdate = ['firstName', 'lastName', 'dob', 'birthPlace', 'birthTime', 'gender', 'password'];
     const isUpdateAllowed = Object.keys(data).every((k) => allowedUpdate.includes(k));
 
     if (!isUpdateAllowed) {
       throw new Error("update not allowed")
     }
-    const user = await User.findByIdAndUpdate(userID, data)
-    res.send("user update successfully")
+    const user = await User.findByIdAndUpdate(userID, data, { new: true }).select("-password");
+    res.json({ success: true, message: "Profile updated successfully", data: user })
   } catch (error) {
-    res.status(400).send("Update Failed" + error.message)
+    res.status(400).json({ success: false, message: "Update Failed: " + error.message })
   }
 })
 
