@@ -7,8 +7,21 @@ const Review = require("./models/review");
 const cors = require("cors");
 const session = require("express-session");
 const bcrypt = require("bcrypt");
-
+require("dotenv").config();
+const { google } = require("googleapis");
 const app = express();
+
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+)
+
+const GOOGLE_SCOPES = [
+  "openid",
+  "email",
+  "profile"
+];
 
 app.use(
   cors({
@@ -23,6 +36,8 @@ app.use(
 );
 
 app.use(express.json());
+
+
 
 app.set("trust proxy", 1);
 app.use(
@@ -791,6 +806,135 @@ app.patch("/v1/admin/booking/complete/:id", async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
+});
+
+//OAUTH
+app.get("/v1/auth/google", (req, res) => {
+
+  const authUrl = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    scope: GOOGLE_SCOPES,
+    prompt: "select_account"
+  });
+
+  res.redirect(authUrl);
+});
+
+app.get("/v1/auth/google/callback", async (req, res) => {
+
+  try {
+
+    const { code } = req.query;
+
+    if (!code) {
+      return res.status(400).json({
+        success: false,
+        message: "Google authorization code missing"
+      });
+    }
+
+    // Exchange authorization code for tokens
+    const { tokens } = await oauth2Client.getToken(code);
+
+    oauth2Client.setCredentials(tokens);
+
+    // Get Google user information
+    const oauth2 = google.oauth2({
+      auth: oauth2Client,
+      version: "v2"
+    });
+
+    const { data } = await oauth2.userinfo.get();
+
+    console.log("Google user:", data);
+
+    const googleId = data.id;
+    const emailId = data.email;
+    const firstName = data.given_name || "";
+    const lastName = data.family_name || "";
+    const profilePicture = data.picture || "";
+
+    if (!emailId) {
+      return res.status(400).json({
+        success: false,
+        message: "Google account email not available"
+      });
+    }
+
+    // Find existing user
+    let user = await User.findOne({ emailId });
+
+    // Create user if not exists
+    if (!user) {
+
+      user = new User({
+        emailId,
+        firstName,
+        lastName,
+
+        // Google users don't have a normal password
+        password: "",
+
+        role: "user",
+
+        googleId,
+        profilePicture
+      });
+
+      await user.save();
+
+    } else {
+
+      // Update Google information
+      user.googleId = googleId;
+      user.profilePicture = profilePicture;
+
+      if (!user.firstName) {
+        user.firstName = firstName;
+      }
+
+      if (!user.lastName) {
+        user.lastName = lastName;
+      }
+
+      await user.save();
+    }
+
+    // Create your existing session
+    req.session.userId = user._id.toString();
+    req.session.emailId = user.emailId;
+    req.session.firstName = user.firstName;
+    req.session.lastName = user.lastName;
+    req.session.role = user.role;
+
+    // Save session before redirect
+    req.session.save((err) => {
+
+      if (err) {
+        console.error("Session save error:", err);
+
+        return res.status(500).json({
+          success: false,
+          message: "Could not create login session"
+        });
+      }
+
+      // Redirect to frontend
+      res.redirect("https://seekvialove.com");
+    });
+
+  } catch (error) {
+
+    console.error("Google OAuth error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Google authentication failed",
+      error: error.message
+    });
+
+  }
+
 });
 
 
