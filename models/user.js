@@ -24,7 +24,9 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: true,
+      required: function () {
+        return !this.googleId;
+      },
       minlength: 4,
     },
     dob: {
@@ -43,7 +45,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ["male", "female", "others"],
       required: false,
-      default: "other",
+      default: "others",
     },
     role: {
       type: String,
