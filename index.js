@@ -1013,6 +1013,9 @@ app.get("/v1/auth/google/callback", async (req, res) => {
         });
       }
 
+       console.log("SESSION SAVED SUCCESSFULLY");
+       console.log("Saved Session ID:", req.sessionID);
+
       // Redirect to frontend
       res.redirect("https://seekvialove.com");
     });
