@@ -4,7 +4,6 @@ const User = require("./models/user");
 const Service = require("./models/services");
 const Booking = require("./models/booking")
 const Review = require("./models/review");
-const MongoStore = require("connect-mongo");
 const cors = require("cors");
 const session = require("express-session");
 const bcrypt = require("bcrypt");
@@ -49,11 +48,6 @@ app.use(
     secret: "your_secret_key",
     resave: false,
     saveUninitialized: false,
-    store: MongoStore.create({
-      mongoUrl: process.env.MONGODB_URI,
-      collectionName: "sessions",
-      ttl: 60 * 60 * 24
-    }),
     cookie: {
       httpOnly: true,
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
@@ -79,9 +73,7 @@ app.use((req, res, next) => {
         req.session.emailId = session.emailId;
         req.session.firstName = session.firstName;
         req.session.lastName = session.lastName;
-        req.session.role = user.role;
-        
-        
+        req.session.role = session.role;
       }
       next();
     });
