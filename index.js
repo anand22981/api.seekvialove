@@ -28,11 +28,11 @@ const GOOGLE_SCOPES = [
 app.use(
   cors({
     origin: [
-    "https://seekvialove.com",
-    "https://www.seekvialove.com"
-  ],
-    methods: ["GET", "POST", "PUT", "DELETE","PATCH","OPTIONS"],
-    allowedHeaders: ["Content-Type","Authorization", "X-Session-Id"],
+      "https://seekvialove.com",
+      "https://www.seekvialove.com"
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Session-Id"],
     credentials: true,
   })
 );
@@ -61,7 +61,7 @@ app.use(
 // This runs AFTER express-session middleware, so req.session exists but may be empty/new
 app.use((req, res, next) => {
   const sessionId = req.headers['x-session-id'];
-  
+
   // If X-Session-Id header is provided, ALWAYS try to restore from it
   // This takes precedence over cookie-based session
   if (sessionId) {
@@ -212,9 +212,9 @@ app.post("/v1/signin", async (req, res) => {
 });
 
 //logout
-app.post("/v1/logout/", async(req,res)=>{
-  req.session.destroy(err=>{
-    if(err) return res.status(500).json({ success: false, message: err.message });
+app.post("/v1/logout/", async (req, res) => {
+  req.session.destroy(err => {
+    if (err) return res.status(500).json({ success: false, message: err.message });
     res.clearCookie("seekvialove.sid");
     res.json({ success: true, message: "Logged out successfully" });
   })
@@ -229,8 +229,8 @@ app.get("/v1/checkSession", async (req, res) => {
         firstName: req.session.firstName,
         userId: req.session.userId,
         emailId: req.session.emailId,
-         lastName: req.session.lastName,
-         role: req.session.role
+        lastName: req.session.lastName,
+        role: req.session.role
       }
     });
   } else {
@@ -358,61 +358,61 @@ app.post("/v1/serviceList", async (req, res) => {
 
 app.post("/v1/booking", async (req, res) => {
   try {
-     if (!req.session.userId) {
-       return res.status(401).json({ success: false, message: "Please login first" });
-     }
+    if (!req.session.userId) {
+      return res.status(401).json({ success: false, message: "Please login first" });
+    }
 
-     const { serviceId } = req.body;
+    const { serviceId } = req.body;
 
-     if (!serviceId) {
-       return res.status(400).json({
-         success: false,
-         message: "serviceId is required"
-       })
-     }
+    if (!serviceId) {
+      return res.status(400).json({
+        success: false,
+        message: "serviceId is required"
+      })
+    }
 
-     const service = await Service.findById(serviceId)
-     if(!service){
-       return res.status(400).json({
-         message:"service not found"
-       })
-     }
+    const service = await Service.findById(serviceId)
+    if (!service) {
+      return res.status(400).json({
+        message: "service not found"
+      })
+    }
 
-     const booking = await Booking.create({
-       user: req.session.userId,
-       service: serviceId
-     })
+    const booking = await Booking.create({
+      user: req.session.userId,
+      service: serviceId
+    })
 
-     res.status(201).json({
-       success: true,
-       message: "Service booked successfully",
-       data:booking
-     });
-   } catch (error) {
-     res.status(500).json({
-       success: false,
-       message:"server error",
-       error: error.message
-     });
-   }
+    res.status(201).json({
+      success: true,
+      message: "Service booked successfully",
+      data: booking
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "server error",
+      error: error.message
+    });
+  }
 })
 
-app.get("/v1/booking", async(req,res)=>{
-  try{
+app.get("/v1/booking", async (req, res) => {
+  try {
     if (!req.session.userId) {
       return res.status(401).json({ success: false, message: "Please login first" });
     }
 
     const bookings = await Booking.find({ user: req.session.userId })
-                                  .populate("service");
+      .populate("service");
 
     res.status(200).json({
-      success:true,
-      data:bookings
+      success: true,
+      data: bookings
     })
-  }catch(error){
+  } catch (error) {
     res.status(500).json({
-      message:error.message
+      message: error.message
     })
   }
 })
@@ -422,20 +422,20 @@ app.get("/v1/debug/bookings-by-email/:email", async (req, res) => {
   try {
     const email = req.params.email;
     console.log("DEBUG /v1/debug/bookings-by-email - Email:", email);
-    
+
     const user = await User.findOne({ emailId: email });
     if (!user) {
       console.log("DEBUG - User not found for email:", email);
       return res.status(404).json({ success: false, message: "User not found" });
     }
-    
+
     console.log("DEBUG - Found user:", user._id, user.emailId);
-    
+
     const bookings = await Booking.find({ user: user._id })
-                                  .populate("service");
-    
+      .populate("service");
+
     console.log("DEBUG - Found bookings for user:", bookings.length);
-    
+
     res.status(200).json({
       success: true,
       user: { id: user._id, email: user.emailId, firstName: user.firstName },
@@ -798,7 +798,7 @@ app.get("/v1/admin/reviews", async (req, res) => {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
-  
+
     const { page = 1, limit = 20 } = req.query;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
@@ -883,7 +883,7 @@ app.get("/v1/admin/bookings", async (req, res) => {
 });
 
 app.patch("/v1/admin/booking/complete/:id", async (req, res) => {
-   
+
   try {
     if (!req.session.userId || req.session.role !== "admin") {
       return res.status(403).json({ message: "Unauthorized" });
@@ -891,7 +891,7 @@ app.patch("/v1/admin/booking/complete/:id", async (req, res) => {
 
     const booking = await Booking.findByIdAndUpdate(
       req.params.id,
-      { $set: { isCompleted: true } }, 
+      { $set: { isCompleted: true } },
       { new: true }
     ).populate("service").populate("user");
 
@@ -969,14 +969,10 @@ app.get("/v1/auth/google/callback", async (req, res) => {
         emailId,
         firstName,
         lastName,
-
-        // Google users don't have a normal password
-        password: "",
-
         role: "user",
-
         googleId,
-        profilePicture
+        profilePicture,
+        authProvider: "google"
       });
 
       await user.save();
@@ -1037,164 +1033,164 @@ app.get("/v1/auth/google/callback", async (req, res) => {
 
 // Reset password
 
-app.post("/v1/forgot-password", async(req,res) =>{
+app.post("/v1/forgot-password", async (req, res) => {
 
   try {
-     const { emailId } = req.body;
+    const { emailId } = req.body;
 
-     if(!emailId){
+    if (!emailId) {
 
       return res.status(400).json({
         message: "email is required"
       })
     }
 
-    const user = await User.findOne({emailId});
+    const user = await User.findOne({ emailId });
 
-    if(!user){
-    return res.status(404).json({
-      message: "user not found"
-    })
+    if (!user) {
+      return res.status(404).json({
+        message: "user not found"
+      })
     }
 
-    const otp = Math.floor(100000+ Math.random()*900000).toString();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    const otpExpiry = new Date(Date.now() + 10*60*1000)
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000)
 
     user.resetOtp = otp
-    user.resetOtpExpires = otpExpiry 
+    user.resetOtpExpires = otpExpiry
 
     await user.save();
 
-   await sendResetOtp(emailId, otp);
+    await sendResetOtp(emailId, otp);
 
-        res.status(200).json({
-            message: "If the email exists, an OTP has been sent"
-        });
+    res.status(200).json({
+      message: "If the email exists, an OTP has been sent"
+    });
 
-  }catch (error) {
-        console.error(error);
+  } catch (error) {
+    console.error(error);
 
-        res.status(500).json({
-            message: "Something went wrong"
-        });
-    }
+    res.status(500).json({
+      message: "Something went wrong"
+    });
+  }
 
 });
 
-app.post("/v1/verify-reset-otp", async(req,res)=>{
+app.post("/v1/verify-reset-otp", async (req, res) => {
 
   try {
 
-    const {emailId, otp} = req.body;
+    const { emailId, otp } = req.body;
 
-    if(!emailId || !otp){
+    if (!emailId || !otp) {
       return res.status(400).json({
         message: "Email and OTP are required"
       })
     }
 
-    const user =  await User.findOne({emailId});
+    const user = await User.findOne({ emailId });
 
-    if(!user){
+    if (!user) {
       return res.status(400).json({
         message: "User Not found"
       })
     }
 
-    if(!user.resetOtp){
+    if (!user.resetOtp) {
       return res.status(400).json({
         message: "No OTP requested"
       })
     }
 
-    if(user.resetOtpExpires < new Date()) {
+    if (user.resetOtpExpires < new Date()) {
       return res.status(400).json({
         message: "OTP has been expired"
       })
     }
 
-    if(user.resetOtp !== otp){
+    if (user.resetOtp !== otp) {
       return res.status(401).json({
         message: "Invalid OTP"
       })
     }
 
-      return res.status(200).json({
-        message: "OTP verified successfully"
-      })
+    return res.status(200).json({
+      message: "OTP verified successfully"
+    })
 
-    
+
   } catch (error) {
-     console.error("OTP verification error:", error);
+    console.error("OTP verification error:", error);
 
-     return res.status(500).json({
-            message: "Something went wrong"
-        });
+    return res.status(500).json({
+      message: "Something went wrong"
+    });
 
   }
 
 })
 
-app.post("/v1/resetPassword", async(req,res)=>{
+app.post("/v1/resetPassword", async (req, res) => {
 
-  try{
+  try {
 
-    const {emailId, otp, newPassword} = req.body;
+    const { emailId, otp, newPassword } = req.body;
 
-    if(!emailId || !otp || !newPassword) {
-       return res.status(400).json({
-                message: "Email, OTP and new password are required"
-            });
+    if (!emailId || !otp || !newPassword) {
+      return res.status(400).json({
+        message: "Email, OTP and new password are required"
+      });
     }
 
     if (newPassword.length < 4) {
-            return res.status(400).json({
-                message: "Password must be at least 4 characters"
-            });
-        }
+      return res.status(400).json({
+        message: "Password must be at least 4 characters"
+      });
+    }
 
-        const user = await User.findOne({ emailId });
-
-
-        if (!user) {
-            return res.status(404).json({
-                message: "User not found"
-            });
-        }
-
-        if (!user.resetOtp || user.resetOtp !== otp) {
-            return res.status(400).json({
-                message: "Invalid OTP"
-            });
-        }
+    const user = await User.findOne({ emailId });
 
 
-        if (user.resetOtpExpires < new Date()) {
-            return res.status(400).json({
-                message: "OTP has expired"
-            });
-        }
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found"
+      });
+    }
 
-        const hashedPassword = await bcrypt.hash(newPassword, 12);
+    if (!user.resetOtp || user.resetOtp !== otp) {
+      return res.status(400).json({
+        message: "Invalid OTP"
+      });
+    }
 
-        user.password = hashedPassword;
-        user.resetOtp = undefined;
-        user.resetOtpExpires = undefined;
 
-         await user.save();
+    if (user.resetOtpExpires < new Date()) {
+      return res.status(400).json({
+        message: "OTP has expired"
+      });
+    }
 
-         return res.status(200).json({
-            message: "Password reset successfully"
-        });
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    user.password = hashedPassword;
+    user.resetOtp = undefined;
+    user.resetOtpExpires = undefined;
+
+    await user.save();
+
+    return res.status(200).json({
+      message: "Password reset successfully"
+    });
   }
   catch (error) {
-        console.error("Reset password error:", error);
+    console.error("Reset password error:", error);
 
-        return res.status(500).json({
-            message: "Something went wrong"
-        });
-    }
+    return res.status(500).json({
+      message: "Something went wrong"
+    });
+  }
 })
 
 
@@ -1202,10 +1198,10 @@ app.post("/v1/resetPassword", async(req,res)=>{
 connectDb()
   .then(() => {
     console.log("db connected successfully");
-  app.listen(7777, () => {
+    app.listen(7777, () => {
       console.log("hello");
     });
-   
+
   })
   .catch((error) => {
     console.log("db connection failed", error);

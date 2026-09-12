@@ -6,7 +6,7 @@ const userSchema = new mongoose.Schema(
     firstName: {
       type: String,
       required: true,
-      minlength: 4,
+      minlength: 1,
       trim: true,
     },
 
@@ -31,24 +31,18 @@ const userSchema = new mongoose.Schema(
 
     // Password is required only for normal accounts.
     // Google accounts do not need a password.
+
+  authProvider: {
+  type: String,
+  enum: ["local", "google"],
+  default: "local"
+},
   password: {
   type: String,
   required: function () {
-    return !this.googleId;
+    return this.authProvider === "local";
   },
-  minlength: 4,
-  validate: {
-    validator: function (value) {
-      // Password is optional for Google users
-      if (this.googleId && (!value || value === "")) {
-        return true;
-      }
-
-      // Normal users must have password >= 4
-      return typeof value === "string" && value.length >= 4;
-    },
-    message: "Password must be at least 4 characters",
-  },
+  minlength: 4
 },
 
     dob: {
