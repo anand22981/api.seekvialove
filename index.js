@@ -222,6 +222,14 @@ app.post("/v1/logout/", async (req, res) => {
 
 //check session
 app.get("/v1/checkSession", async (req, res) => {
+
+   console.log("========== CHECK SESSION ==========");
+  console.log("Session ID:", req.sessionID);
+  console.log("Session:", req.session);
+  console.log("User ID:", req.session.userId);
+  console.log("Email:", req.session.emailId);
+
+  
   if (req.session.userId) {
     res.json({
       loggedIn: true,
