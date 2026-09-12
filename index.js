@@ -918,25 +918,148 @@ app.get("/v1/auth/google", (req, res) => {
   res.redirect(authUrl);
 });
 
+// app.get("/v1/auth/google/callback", async (req, res) => {
+
+//   try {
+
+//     const { code } = req.query;
+
+//     if (!code) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Google authorization code missing"
+//       });
+//     }
+
+//     // Exchange authorization code for tokens
+//     const { tokens } = await oauth2Client.getToken(code);
+
+//     oauth2Client.setCredentials(tokens);
+
+//     // Get Google user information
+//     const oauth2 = google.oauth2({
+//       auth: oauth2Client,
+//       version: "v2"
+//     });
+
+//     const { data } = await oauth2.userinfo.get();
+
+//     console.log("Google user:", data);
+
+//     const googleId = data.id;
+//     const emailId = data.email;
+//     const firstName = data.given_name || "";
+//     const lastName = data.family_name || "";
+//     const profilePicture = data.picture || "";
+
+//     if (!emailId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Google account email not available"
+//       });
+//     }
+
+//     // Find existing user
+//     let user = await User.findOne({ emailId });
+
+//     // Create user if not exists
+//     if (!user) {
+
+//       user = new User({
+//         emailId,
+//         firstName,
+//         lastName,
+//         role: "user",
+//         googleId,
+//         profilePicture,
+//         authProvider: "google"
+//       });
+
+//       await user.save();
+
+//     } else {
+
+//       // Update Google information
+//       user.googleId = googleId;
+//       user.profilePicture = profilePicture;
+
+//       if (!user.firstName) {
+//         user.firstName = firstName;
+//       }
+
+//       if (!user.lastName) {
+//         user.lastName = lastName;
+//       }
+
+//       await user.save();
+//     }
+
+//     // Create your existing session
+//     req.session.userId = user._id.toString();
+//     req.session.emailId = user.emailId;
+//     req.session.firstName = user.firstName;
+//     req.session.lastName = user.lastName;
+//     req.session.role = user.role;
+
+//     // Save session before redirect
+//     req.session.save((err) => {
+
+//       if (err) {
+//         console.error("Session save error:", err);
+
+//         return res.status(500).json({
+//           success: false,
+//           message: "Could not create login session"
+//         });
+//       }
+
+//        console.log("SESSION SAVED SUCCESSFULLY");
+//        console.log("Saved Session ID:", req.sessionID);
+
+//       // Redirect to frontend
+//       res.redirect("https://seekvialove.com");
+//     });
+
+//   } catch (error) {
+
+//     console.error("Google OAuth error:", error);
+
+//     res.status(500).json({
+//       success: false,
+//       message: "Google authentication failed",
+//       error: error.message
+//     });
+
+//   }
+
+// });
+
+// Reset password
+
+
 app.get("/v1/auth/google/callback", async (req, res) => {
+  console.log("========== GOOGLE CALLBACK HIT ==========");
+  console.log("Query:", req.query);
 
   try {
-
     const { code } = req.query;
 
     if (!code) {
+      console.log("NO GOOGLE CODE");
       return res.status(400).json({
         success: false,
         message: "Google authorization code missing"
       });
     }
 
-    // Exchange authorization code for tokens
+    console.log("Google code received");
+
     const { tokens } = await oauth2Client.getToken(code);
+
+    console.log("Google tokens received");
 
     oauth2Client.setCredentials(tokens);
 
-    // Get Google user information
     const oauth2 = google.oauth2({
       auth: oauth2Client,
       version: "v2"
@@ -953,17 +1076,20 @@ app.get("/v1/auth/google/callback", async (req, res) => {
     const profilePicture = data.picture || "";
 
     if (!emailId) {
+      console.log("Google email missing");
+
       return res.status(400).json({
         success: false,
         message: "Google account email not available"
       });
     }
 
-    // Find existing user
+    console.log("Searching user:", emailId);
+
     let user = await User.findOne({ emailId });
 
-    // Create user if not exists
     if (!user) {
+      console.log("Creating new Google user");
 
       user = new User({
         emailId,
@@ -977,9 +1103,12 @@ app.get("/v1/auth/google/callback", async (req, res) => {
 
       await user.save();
 
+      console.log("Google user created:", user._id);
+
     } else {
 
-      // Update Google information
+      console.log("Existing user found:", user._id);
+
       user.googleId = googleId;
       user.profilePicture = profilePicture;
 
@@ -992,20 +1121,26 @@ app.get("/v1/auth/google/callback", async (req, res) => {
       }
 
       await user.save();
+
+      console.log("User updated");
     }
 
-    // Create your existing session
+    console.log("Creating session...");
+
     req.session.userId = user._id.toString();
     req.session.emailId = user.emailId;
     req.session.firstName = user.firstName;
     req.session.lastName = user.lastName;
     req.session.role = user.role;
 
-    // Save session before redirect
+    console.log("SESSION BEFORE SAVE:");
+    console.log("Session ID:", req.sessionID);
+    console.log("Session:", req.session);
+
     req.session.save((err) => {
 
       if (err) {
-        console.error("Session save error:", err);
+        console.error("SESSION SAVE ERROR:", err);
 
         return res.status(500).json({
           success: false,
@@ -1013,28 +1148,29 @@ app.get("/v1/auth/google/callback", async (req, res) => {
         });
       }
 
-       console.log("SESSION SAVED SUCCESSFULLY");
-       console.log("Saved Session ID:", req.sessionID);
+      console.log("=================================");
+      console.log("SESSION SAVED SUCCESSFULLY");
+      console.log("Saved Session ID:", req.sessionID);
+      console.log("User ID:", req.session.userId);
+      console.log("=================================");
 
-      // Redirect to frontend
-      res.redirect("https://seekvialove.com");
+      res.redirect("https://seekvialove.com/");
     });
 
   } catch (error) {
 
-    console.error("Google OAuth error:", error);
+    console.error("========== GOOGLE OAUTH ERROR ==========");
+    console.error(error);
+    console.error(error.stack);
 
     res.status(500).json({
       success: false,
       message: "Google authentication failed",
       error: error.message
     });
-
   }
-
 });
 
-// Reset password
 
 app.post("/v1/forgot-password", async (req, res) => {
 
