@@ -6,7 +6,7 @@ const Booking = require("./models/booking")
 const Review = require("./models/review");
 const cors = require("cors");
 const session = require("express-session");
-const MongoStore = require("connect-mongo");
+const MongoStore = require("connect-mongo").default;
 const bcrypt = require("bcrypt");
 require("dotenv").config();
 const { google } = require("googleapis");
