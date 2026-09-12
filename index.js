@@ -65,50 +65,30 @@ app.use(
 
 // ─── Middleware to restore session from X-Session-Id header ───
 // This runs AFTER express-session middleware, so req.session exists but may be empty/new
-// app.use((req, res, next) => {
-//   const sessionId = req.headers['x-session-id'];
-
-//   // If X-Session-Id header is provided, ALWAYS try to restore from it
-//   // This takes precedence over cookie-based session
-//   if (sessionId) {
-//     const sessionStore = req.sessionStore;
-//     sessionStore.get(sessionId, (err, session) => {
-//       if (!err && session && session.userId) {
-//         // Restore all session data from the stored session
-//         req.session.userId = session.userId;
-//         req.session.emailId = session.emailId;
-//         req.session.firstName = session.firstName;
-//         req.session.lastName = session.lastName;
-//         req.session.role = session.role;
-        
-        
-//       }
-//       next();
-//     });
-//   } else {
-//     // No X-Session-Id header, use cookie-based session (default express-session behavior)
-//     next();
-//   }
-// });
-
 app.use((req, res, next) => {
-  const sessionId = req.headers["x-session-id"];
+  const sessionId = req.headers['x-session-id'];
 
-  if (!sessionId) {
-    return next();
-  }
-
-  req.sessionStore.get(sessionId, (err, sessionData) => {
-    if (!err && sessionData?.userId) {
-      req.session.userId = sessionData.userId;
-      req.session.emailId = sessionData.emailId;
-      req.session.firstName = sessionData.firstName;
-      req.session.lastName = sessionData.lastName;
-      req.session.role = sessionData.role;
-    }
-
+  // If X-Session-Id header is provided, ALWAYS try to restore from it
+  // This takes precedence over cookie-based session
+  if (sessionId) {
+    const sessionStore = req.sessionStore;
+    sessionStore.get(sessionId, (err, session) => {
+      if (!err && session && session.userId) {
+        // Restore all session data from the stored session
+        req.session.userId = session.userId;
+        req.session.emailId = session.emailId;
+        req.session.firstName = session.firstName;
+        req.session.lastName = session.lastName;
+        req.session.role = user.role;
+        
+        
+      }
+      next();
+    });
+  } else {
+    // No X-Session-Id header, use cookie-based session (default express-session behavior)
     next();
-  });
+  }
 });
 
 // ─── Auth middleware: require login ───
@@ -250,10 +230,6 @@ app.post("/v1/logout/", async (req, res) => {
 
 //check session
 app.get("/v1/checkSession", async (req, res) => {
-
-  res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
-  res.set("Pragma", "no-cache");
-  res.set("Expires", "0");
   if (req.session.userId) {
     res.json({
       loggedIn: true,
