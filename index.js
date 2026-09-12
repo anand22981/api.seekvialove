@@ -6,6 +6,7 @@ const Booking = require("./models/booking")
 const Review = require("./models/review");
 const cors = require("cors");
 const session = require("express-session");
+const MongoStore = require("connect-mongo");
 const bcrypt = require("bcrypt");
 require("dotenv").config();
 const { google } = require("googleapis");
@@ -48,6 +49,13 @@ app.use(
     secret: "your_secret_key",
     resave: false,
     saveUninitialized: false,
+
+    store: MongoStore.create({
+      mongoUrl: process.env.MONGODB_URI,
+      collectionName: "sessions",
+      ttl: 24 * 60 * 60
+    }),
+
     cookie: {
       httpOnly: true,
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
@@ -59,29 +67,29 @@ app.use(
 
 // ─── Middleware to restore session from X-Session-Id header ───
 // This runs AFTER express-session middleware, so req.session exists but may be empty/new
-app.use((req, res, next) => {
-  const sessionId = req.headers['x-session-id'];
+// app.use((req, res, next) => {
+//   const sessionId = req.headers['x-session-id'];
 
-  // If X-Session-Id header is provided, ALWAYS try to restore from it
-  // This takes precedence over cookie-based session
-  if (sessionId) {
-    const sessionStore = req.sessionStore;
-    sessionStore.get(sessionId, (err, session) => {
-      if (!err && session && session.userId) {
-        // Restore all session data from the stored session
-        req.session.userId = session.userId;
-        req.session.emailId = session.emailId;
-        req.session.firstName = session.firstName;
-        req.session.lastName = session.lastName;
-        req.session.role = session.role;
-      }
-      next();
-    });
-  } else {
-    // No X-Session-Id header, use cookie-based session (default express-session behavior)
-    next();
-  }
-});
+//   // If X-Session-Id header is provided, ALWAYS try to restore from it
+//   // This takes precedence over cookie-based session
+//   if (sessionId) {
+//     const sessionStore = req.sessionStore;
+//     sessionStore.get(sessionId, (err, session) => {
+//       if (!err && session && session.userId) {
+//         // Restore all session data from the stored session
+//         req.session.userId = session.userId;
+//         req.session.emailId = session.emailId;
+//         req.session.firstName = session.firstName;
+//         req.session.lastName = session.lastName;
+//         req.session.role = session.role;
+//       }
+//       next();
+//     });
+//   } else {
+//     // No X-Session-Id header, use cookie-based session (default express-session behavior)
+//     next();
+//   }
+// });
 
 // ─── Auth middleware: require login ───
 const requireLogin = (req, res, next) => {
@@ -229,7 +237,7 @@ app.get("/v1/checkSession", async (req, res) => {
   console.log("User ID:", req.session.userId);
   console.log("Email:", req.session.emailId);
 
-  
+
   if (req.session.userId) {
     res.json({
       loggedIn: true,
@@ -1045,6 +1053,140 @@ app.get("/v1/auth/google", (req, res) => {
 // Reset password
 
 
+// app.get("/v1/auth/google/callback", async (req, res) => {
+//   console.log("========== GOOGLE CALLBACK HIT ==========");
+//   console.log("Query:", req.query);
+
+//   try {
+//     const { code } = req.query;
+
+//     if (!code) {
+//       console.log("NO GOOGLE CODE");
+//       return res.status(400).json({
+//         success: false,
+//         message: "Google authorization code missing"
+//       });
+//     }
+
+//     console.log("Google code received");
+
+//     const { tokens } = await oauth2Client.getToken(code);
+
+//     console.log("Google tokens received");
+
+//     oauth2Client.setCredentials(tokens);
+
+//     const oauth2 = google.oauth2({
+//       auth: oauth2Client,
+//       version: "v2"
+//     });
+
+//     const { data } = await oauth2.userinfo.get();
+
+//     console.log("Google user:", data);
+
+//     const googleId = data.id;
+//     const emailId = data.email;
+//     const firstName = data.given_name || "";
+//     const lastName = data.family_name || "";
+//     const profilePicture = data.picture || "";
+
+//     if (!emailId) {
+//       console.log("Google email missing");
+
+//       return res.status(400).json({
+//         success: false,
+//         message: "Google account email not available"
+//       });
+//     }
+
+//     console.log("Searching user:", emailId);
+
+//     let user = await User.findOne({ emailId });
+
+//     if (!user) {
+//       console.log("Creating new Google user");
+
+//       user = new User({
+//         emailId,
+//         firstName,
+//         lastName,
+//         role: "user",
+//         googleId,
+//         profilePicture,
+//         authProvider: "google"
+//       });
+
+//       await user.save();
+
+//       console.log("Google user created:", user._id);
+
+//     } else {
+
+//       console.log("Existing user found:", user._id);
+
+//       user.googleId = googleId;
+//       user.profilePicture = profilePicture;
+
+//       if (!user.firstName) {
+//         user.firstName = firstName;
+//       }
+
+//       if (!user.lastName) {
+//         user.lastName = lastName;
+//       }
+
+//       await user.save();
+
+//       console.log("User updated");
+//     }
+
+   
+
+//     req.session.userId = user._id.toString();
+//     req.session.emailId = user.emailId;
+//     req.session.firstName = user.firstName;
+//     req.session.lastName = user.lastName;
+//     req.session.role = user.role;
+
+//     console.log("SESSION BEFORE SAVE:");
+//     console.log("Session ID:", req.sessionID);
+//     console.log("Session:", req.session);
+
+//     req.session.save((err) => {
+
+//       if (err) {
+//         console.error("SESSION SAVE ERROR:", err);
+
+//         return res.status(500).json({
+//           success: false,
+//           message: "Could not create login session"
+//         });
+//       }
+
+//       console.log("=================================");
+//       console.log("SESSION SAVED SUCCESSFULLY");
+//       console.log("Saved Session ID:", req.sessionID);
+//       console.log("User ID:", req.session.userId);
+//       console.log("=================================");
+
+//       res.redirect("https://seekvialove.com/");
+//     });
+
+//   } catch (error) {
+
+//     console.error("========== GOOGLE OAUTH ERROR ==========");
+//     console.error(error);
+//     console.error(error.stack);
+
+//     res.status(500).json({
+//       success: false,
+//       message: "Google authentication failed",
+//       error: error.message
+//     });
+//   }
+// });
+
 app.get("/v1/auth/google/callback", async (req, res) => {
   console.log("========== GOOGLE CALLBACK HIT ==========");
   console.log("Query:", req.query);
@@ -1053,7 +1195,6 @@ app.get("/v1/auth/google/callback", async (req, res) => {
     const { code } = req.query;
 
     if (!code) {
-      console.log("NO GOOGLE CODE");
       return res.status(400).json({
         success: false,
         message: "Google authorization code missing"
@@ -1084,8 +1225,6 @@ app.get("/v1/auth/google/callback", async (req, res) => {
     const profilePicture = data.picture || "";
 
     if (!emailId) {
-      console.log("Google email missing");
-
       return res.status(400).json({
         success: false,
         message: "Google account email not available"
@@ -1112,9 +1251,7 @@ app.get("/v1/auth/google/callback", async (req, res) => {
       await user.save();
 
       console.log("Google user created:", user._id);
-
     } else {
-
       console.log("Existing user found:", user._id);
 
       user.googleId = googleId;
@@ -1133,22 +1270,11 @@ app.get("/v1/auth/google/callback", async (req, res) => {
       console.log("User updated");
     }
 
-    console.log("Creating session...");
-
-    req.session.userId = user._id.toString();
-    req.session.emailId = user.emailId;
-    req.session.firstName = user.firstName;
-    req.session.lastName = user.lastName;
-    req.session.role = user.role;
-
-    console.log("SESSION BEFORE SAVE:");
-    console.log("Session ID:", req.sessionID);
-    console.log("Session:", req.session);
-
-    req.session.save((err) => {
-
+    // IMPORTANT:
+    // Create a fresh session after successful Google authentication
+    req.session.regenerate((err) => {
       if (err) {
-        console.error("SESSION SAVE ERROR:", err);
+        console.error("SESSION REGENERATE ERROR:", err);
 
         return res.status(500).json({
           success: false,
@@ -1156,29 +1282,47 @@ app.get("/v1/auth/google/callback", async (req, res) => {
         });
       }
 
-      console.log("=================================");
-      console.log("SESSION SAVED SUCCESSFULLY");
-      console.log("Saved Session ID:", req.sessionID);
-      console.log("User ID:", req.session.userId);
-      console.log("=================================");
+      req.session.userId = user._id.toString();
+      req.session.emailId = user.emailId;
+      req.session.firstName = user.firstName;
+      req.session.lastName = user.lastName;
+      req.session.role = user.role;
 
-      res.redirect("https://seekvialove.com/");
+      console.log("NEW GOOGLE SESSION CREATED");
+      console.log("Session ID:", req.sessionID);
+      console.log("User ID:", req.session.userId);
+
+      req.session.save((err) => {
+        if (err) {
+          console.error("SESSION SAVE ERROR:", err);
+
+          return res.status(500).json({
+            success: false,
+            message: "Could not save login session"
+          });
+        }
+
+        console.log("=================================");
+        console.log("GOOGLE SESSION SAVED SUCCESSFULLY");
+        console.log("Saved Session ID:", req.sessionID);
+        console.log("User ID:", req.session.userId);
+        console.log("=================================");
+
+        return res.redirect("https://seekvialove.com/");
+      });
     });
 
   } catch (error) {
-
     console.error("========== GOOGLE OAUTH ERROR ==========");
     console.error(error);
     console.error(error.stack);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Google authentication failed",
-      error: error.message
+      message: "Google authentication failed"
     });
   }
 });
-
 
 app.post("/v1/forgot-password", async (req, res) => {
 
