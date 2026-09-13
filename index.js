@@ -35,6 +35,7 @@ app.use(
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Session-Id"],
+    exposedHeaders: ["X-Session-Id"],
     credentials: true,
   })
 );
@@ -61,10 +62,10 @@ app.use(
       httpOnly: true,
       secure: process.env.NODE_ENV === "production" ? true : false,
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      // Partitioned (CHIPS) is required for cross-site cookies on modern browsers.
-      // Node.js `cookie` (v0.7+) + express-session with Node >= 21 serializes
-      // partitioned cookies correctly (verified: a=b; Path=/; ... Partitioned; SameSite=None).
-      partitioned: process.env.NODE_ENV === "production" ? true : false,
+      // Partitioned (CHIPS) cookies are only enabled when explicitly opted in
+      // via COOKIE_PARTITIONED=true. Default OFF — the browser must accept the
+      // session cookie reliably on all browsers/devices.
+      partitioned: process.env.COOKIE_PARTITIONED === "true",
       path: "/",
       maxAge: 1000 * 60 * 60 * 24,
     },
@@ -74,26 +75,40 @@ app.use(
 // ─── Middleware to restore session from X-Session-Id header ───
 // Runs AFTER express-session, so req.session exists.
 // In cross-site Incognito flows the session cookie may be blocked by the browser,
-// so the frontend can instead pass the session id via the X-Session-Id header.
+// so the frontend passes the session id via the X-Session-Id header.
+// Also always expose the current session id on every response header so the
+// frontend can read it even through CORS.
 app.use((req, res, next) => {
-  const sessionId = req.headers['x-session-id'];
+  const sessionId = req.headers["x-session-id"];
+
+  const finish = () => {
+    // Always expose the current session id so the SPA can persist it after
+    // login, signup or the Google OAuth callback.
+    res.set("X-Session-Id", req.sessionID || "");
+    next();
+  };
 
   // If X-Session-Id header is provided, restore from it (takes precedence over cookie)
   if (sessionId) {
     const sessionStore = req.sessionStore;
-    sessionStore.get(sessionId, (err, session) => {
-      if (!err && session && session.userId) {
-        req.session.userId = session.userId;
-        req.session.emailId = session.emailId;
-        req.session.firstName = session.firstName;
-        req.session.lastName = session.lastName;
-        req.session.role = session.role;
-      }
-      next();
-    });
+    try {
+      sessionStore.get(sessionId, (err, session) => {
+        if (!err && session && session.userId) {
+          req.session.userId = session.userId;
+          req.session.emailId = session.emailId;
+          req.session.firstName = session.firstName;
+          req.session.lastName = session.lastName;
+          req.session.role = session.role;
+        }
+        finish();
+      });
+    } catch (e) {
+      console.error("SESSION RESTORE ERROR:", e.message);
+      finish();
+    }
   } else {
     // No X-Session-Id header, use cookie-based session (default express-session behavior)
-    next();
+    finish();
   }
 });
 
@@ -233,7 +248,7 @@ app.post("/v1/logout/", async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production" ? true : false,
       sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-      partitioned: process.env.NODE_ENV === "production" ? true : false,
+      partitioned: process.env.COOKIE_PARTITIONED === "true",
       path: "/",
     });
     res.json({ success: true, message: "Logged out successfully" });
@@ -1273,15 +1288,16 @@ app.get("/v1/auth/google/callback", async (req, res) => {
 
     const googleId = data.id;
     const emailId = data.email;
-    const firstName = data.given_name || "";
-    const lastName = data.family_name || "";
+    // Google sometimes omits empty given_name/family_name — both fields are
+    // required by the User schema, so fall back to the full name / a label.
+    const firstName = (data.given_name || data.name?.split(" ")[0] || "").trim();
+    const lastName = data.family_name || (data.name && !data.given_name ? data.name.split(" ").slice(1).join(" ") : "") || "";
     const profilePicture = data.picture || "";
 
     if (!emailId) {
-      return res.status(400).json({
-        success: false,
-        message: "Google account email not available"
-      });
+      return res.redirect(
+        `${process.env.FRONTEND_URL || "https://seekvialove.com"}/login?error=google_email_unavailable`
+      );
     }
 
     console.log("Searching user:", emailId);
@@ -1293,7 +1309,7 @@ app.get("/v1/auth/google/callback", async (req, res) => {
 
       user = new User({
         emailId,
-        firstName,
+        firstName: firstName || "Google User",
         lastName,
         role: "user",
         googleId,
@@ -1311,7 +1327,7 @@ app.get("/v1/auth/google/callback", async (req, res) => {
       user.profilePicture = profilePicture;
 
       if (!user.firstName) {
-        user.firstName = firstName;
+        user.firstName = firstName || "Google User";
       }
 
       if (!user.lastName) {
@@ -1329,10 +1345,9 @@ app.get("/v1/auth/google/callback", async (req, res) => {
       if (err) {
         console.error("SESSION REGENERATE ERROR:", err);
 
-        return res.status(500).json({
-          success: false,
-          message: "Could not create login session"
-        });
+        return res.redirect(
+          `${process.env.FRONTEND_URL || "https://seekvialove.com"}/login?error=session_failed`
+        );
       }
 
       req.session.userId = user._id.toString();
@@ -1349,10 +1364,9 @@ app.get("/v1/auth/google/callback", async (req, res) => {
         if (err) {
           console.error("SESSION SAVE ERROR:", err);
 
-          return res.status(500).json({
-            success: false,
-            message: "Could not save login session"
-          });
+          return res.redirect(
+            `${process.env.FRONTEND_URL || "https://seekvialove.com"}/login?error=session_failed`
+          );
         }
 
         console.log("=================================");
@@ -1371,11 +1385,28 @@ app.get("/v1/auth/google/callback", async (req, res) => {
     console.error(error);
     console.error(error.stack);
 
-    return res.status(500).json({
-      success: false,
-      message: "Google authentication failed"
-    });
+    return res.redirect(
+      `${process.env.FRONTEND_URL || "https://seekvialove.com"}/login?error=google_auth_failed`
+    );
   }
+});
+
+// 🔍 Debug helper (no secrets): confirm the OAuth/session config the server
+// actually loaded, so misconfigured prod env vars are easy to spot.
+app.get("/v1/debug/oauth-config", (req, res) => {
+  res.json({
+    success: true,
+    googleConfigured: Boolean(
+      process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+    ),
+    googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || "(missing)",
+    frontendUrl: process.env.FRONTEND_URL || "(missing)",
+    nodeEnv: process.env.NODE_ENV || "(missing)",
+    mongoUriConfigured: Boolean(process.env.MONGODB_URI),
+    sessionSecretConfigured: Boolean(process.env.SESSION_SECRET),
+    cookiePartitionedEnabled: process.env.COOKIE_PARTITIONED === "true",
+    sessionId: req.sessionID || null,
+  });
 });
 
 app.post("/v1/forgot-password", async (req, res) => {
