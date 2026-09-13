@@ -4,6 +4,7 @@ const User = require("./models/user");
 const Service = require("./models/services");
 const Booking = require("./models/booking")
 const Review = require("./models/review");
+const mongoose = require("mongoose");
 const cors = require("cors");
 const session = require("express-session");
 const MongoStore = require("connect-mongo").default;
@@ -46,7 +47,7 @@ app.set("trust proxy", 1);
 app.use(
   session({
     name: "seekvialove.sid",
-    secret: "your_secret_key",
+    secret: process.env.SESSION_SECRET || "fallback_dev_secret_do_not_use_in_prod",
     resave: false,
     saveUninitialized: false,
 
@@ -58,38 +59,43 @@ app.use(
 
     cookie: {
       httpOnly: true,
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       secure: process.env.NODE_ENV === "production" ? true : false,
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      // Partitioned (CHIPS) is required for cross-site cookies on modern browsers.
+      // Node.js `cookie` (v0.7+) + express-session with Node >= 21 serializes
+      // partitioned cookies correctly (verified: a=b; Path=/; ... Partitioned; SameSite=None).
+      partitioned: process.env.NODE_ENV === "production" ? true : false,
+      path: "/",
       maxAge: 1000 * 60 * 60 * 24,
     },
   })
 );
 
 // ─── Middleware to restore session from X-Session-Id header ───
-// This runs AFTER express-session middleware, so req.session exists but may be empty/new
-// app.use((req, res, next) => {
-//   const sessionId = req.headers['x-session-id'];
+// Runs AFTER express-session, so req.session exists.
+// In cross-site Incognito flows the session cookie may be blocked by the browser,
+// so the frontend can instead pass the session id via the X-Session-Id header.
+app.use((req, res, next) => {
+  const sessionId = req.headers['x-session-id'];
 
-//   // If X-Session-Id header is provided, ALWAYS try to restore from it
-//   // This takes precedence over cookie-based session
-//   if (sessionId) {
-//     const sessionStore = req.sessionStore;
-//     sessionStore.get(sessionId, (err, session) => {
-//       if (!err && session && session.userId) {
-//         // Restore all session data from the stored session
-//         req.session.userId = session.userId;
-//         req.session.emailId = session.emailId;
-//         req.session.firstName = session.firstName;
-//         req.session.lastName = session.lastName;
-//         req.session.role = session.role;
-//       }
-//       next();
-//     });
-//   } else {
-//     // No X-Session-Id header, use cookie-based session (default express-session behavior)
-//     next();
-//   }
-// });
+  // If X-Session-Id header is provided, restore from it (takes precedence over cookie)
+  if (sessionId) {
+    const sessionStore = req.sessionStore;
+    sessionStore.get(sessionId, (err, session) => {
+      if (!err && session && session.userId) {
+        req.session.userId = session.userId;
+        req.session.emailId = session.emailId;
+        req.session.firstName = session.firstName;
+        req.session.lastName = session.lastName;
+        req.session.role = session.role;
+      }
+      next();
+    });
+  } else {
+    // No X-Session-Id header, use cookie-based session (default express-session behavior)
+    next();
+  }
+});
 
 // ─── Auth middleware: require login ───
 const requireLogin = (req, res, next) => {
@@ -221,26 +227,33 @@ app.post("/v1/signin", async (req, res) => {
 
 //logout
 app.post("/v1/logout/", async (req, res) => {
-  req.session.destroy(err => {
+  req.session.destroy((err) => {
     if (err) return res.status(500).json({ success: false, message: err.message });
-    res.clearCookie("seekvialove.sid");
+    res.clearCookie("seekvialove.sid", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production" ? true : false,
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      partitioned: process.env.NODE_ENV === "production" ? true : false,
+      path: "/",
+    });
     res.json({ success: true, message: "Logged out successfully" });
-  })
-})
+  });
+});
 
 //check session
 app.get("/v1/checkSession", async (req, res) => {
-
-   console.log("========== CHECK SESSION ==========");
+  console.log("========== CHECK SESSION ==========");
   console.log("Session ID:", req.sessionID);
   console.log("Session:", req.session);
   console.log("User ID:", req.session.userId);
   console.log("Email:", req.session.emailId);
 
+  res.set("X-Session-Id", req.sessionID || "");
 
   if (req.session.userId) {
-    res.json({
+    return res.json({
       loggedIn: true,
+      sessionID: req.sessionID,
       user: {
         firstName: req.session.firstName,
         userId: req.session.userId,
@@ -249,9 +262,9 @@ app.get("/v1/checkSession", async (req, res) => {
         role: req.session.role
       }
     });
-  } else {
-    res.json({ loggedIn: false });
   }
+
+  return res.json({ loggedIn: false, sessionID: req.sessionID });
 });
 
 // GET user profile
@@ -580,6 +593,17 @@ app.get("/v1/reviews", async (req, res) => {
     const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
+    // Build aggregation $match from the same filters (service-scoped average)
+    const matchStage = {};
+    if (serviceId) {
+      if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+        return res.status(400).json({ success: false, message: "Invalid serviceId" });
+      }
+      matchStage.service = new mongoose.Types.ObjectId(serviceId);
+    }
+    if (rating) matchStage.rating = Number(rating);
+    if (mode) matchStage.mode = mode;
+
     const [reviews, totalCount] = await Promise.all([
       Review.find(filter)
         .populate("service", "title price image")
@@ -590,8 +614,9 @@ app.get("/v1/reviews", async (req, res) => {
       Review.countDocuments(filter),
     ]);
 
-    // Calculate average rating (overall, not just page)
+    // Calculate average rating scoped to the current filter (e.g. per-service)
     const aggregation = await Review.aggregate([
+      { $match: matchStage },
       { $group: { _id: null, avgRating: { $avg: "$rating" }, totalReviews: { $sum: 1 } } },
     ]);
 
@@ -640,6 +665,9 @@ app.post("/v1/reviews", async (req, res) => {
     // 🔍 Find the SPECIFIC booking and verify it belongs to this user
     let booking;
     if (bookingId) {
+      if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+        return res.status(400).json({ success: false, message: "Invalid bookingId" });
+      }
       // If bookingId is provided, find by ID
       booking = await Booking.findById(bookingId).populate("service");
     } else {
@@ -666,7 +694,15 @@ app.post("/v1/reviews", async (req, res) => {
     }
 
     // 🔗 Validate serviceId matches the booking's service
-    if (booking.service._id.toString() !== serviceId) {
+    const bookingServiceId =
+      booking.service?._id?.toString() || booking.service?.toString();
+    if (!bookingServiceId) {
+      return res.status(404).json({
+        success: false,
+        message: "The booked service no longer exists",
+      });
+    }
+    if (bookingServiceId !== serviceId) {
       return res.status(400).json({
         success: false,
         message: "Service ID does not match the booked service",
@@ -681,34 +717,59 @@ app.post("/v1/reviews", async (req, res) => {
       });
     }
 
-    // 🚫 Booking must not already have a review
-    if (booking.isReviewed) {
-      return res.status(400).json({
+    // ✅ Atomically claim THIS booking so a double-submit or duplicate
+    //    request can not burn a second booking / create a duplicate review.
+    const claimed = await Booking.findOneAndUpdate(
+      { _id: booking._id, isReviewed: false },
+      { $set: { isReviewed: true } },
+      { new: true }
+    );
+    if (!claimed) {
+      return res.status(409).json({
         success: false,
         message: "You have already reviewed this session",
       });
     }
 
-    // ✅ Save review — link to specific booking
-    const newReview = await Review.create({
-      user: req.session.userId,
-      service: serviceId,
-      booking: bookingId,
-      name: req.session.firstName,
-      message,
-      rating,
-      mode,
-    });
+    // Resolve the reviewer name safely (Google users may have empty firstName)
+    let reviewerName = req.session.firstName;
+    if (!reviewerName) {
+      const reviewer = await User.findById(req.session.userId).select("firstName");
+      reviewerName = reviewer?.firstName;
+    }
+    if (!reviewerName) {
+      reviewerName = "Anonymous";
+    }
 
-    // ✅ Mark THIS specific booking as reviewed
-    booking.isReviewed = true;
-    await booking.save();
+    // ✅ Save review — link to the SPECIFIC booking (_id, not the raw request value)
+    try {
+      const newReview = await Review.create({
+        user: req.session.userId,
+        service: serviceId,
+        booking: booking._id,
+        name: reviewerName,
+        message,
+        rating,
+        mode,
+      });
 
-    res.status(201).json({
-      success: true,
-      message: "Review submitted successfully",
-      data: newReview,
-    });
+      res.status(201).json({
+        success: true,
+        message: "Review submitted successfully",
+        data: newReview,
+      });
+    } catch (createErr) {
+      // Unique index conflict (already reviewed this booking) or validation error.
+      // Roll back the booking flag so the user can retry once fixed.
+      await Booking.findByIdAndUpdate(booking._id, { isReviewed: false });
+      if (createErr.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          message: "You have already reviewed this session",
+        });
+      }
+      throw createErr;
+    }
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -782,14 +843,10 @@ app.delete("/v1/reviews/:id", async (req, res) => {
     }
 
     // 🔄 Reset THE SPECIFIC booking's isReviewed flag (using review.booking)
+    // NOTE: no {user, service} fallback — that would reset an arbitrary
+    // booking for that user+service and block other reviews.
     if (review.booking) {
       await Booking.findByIdAndUpdate(review.booking, { isReviewed: false });
-    } else {
-      // Fallback for older reviews without booking ref
-      await Booking.findOneAndUpdate(
-        { user: review.user, service: review.service },
-        { isReviewed: false }
-      );
     }
 
     await Review.findByIdAndDelete(req.params.id);
@@ -856,14 +913,10 @@ app.delete("/v1/admin/reviews/:id", async (req, res) => {
     }
 
     // Reset THE SPECIFIC booking's isReviewed flag (using review.booking)
+    // NOTE: no {user, service} fallback — that would reset an arbitrary
+    // booking for that user+service and block other reviews.
     if (review.booking) {
       await Booking.findByIdAndUpdate(review.booking, { isReviewed: false });
-    } else {
-      // Fallback for older reviews without booking ref
-      await Booking.findOneAndUpdate(
-        { user: review.user, service: review.service },
-        { isReviewed: false }
-      );
     }
 
     await Review.findByIdAndDelete(req.params.id);
@@ -1308,7 +1361,8 @@ app.get("/v1/auth/google/callback", async (req, res) => {
         console.log("User ID:", req.session.userId);
         console.log("=================================");
 
-        return res.redirect("https://seekvialove.com/");
+        const frontendUrl = process.env.FRONTEND_URL || "https://seekvialove.com";
+        return res.redirect(`${frontendUrl}/auth/callback?sessionID=${encodeURIComponent(req.sessionID)}`);
       });
     });
 
