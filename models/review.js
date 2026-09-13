@@ -14,13 +14,13 @@ const reviewSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Tie review to a specific booking (each completed booking can have one review).
-    // Different users (different bookings) CAN review the same service —
-    // uniqueness is enforced per booking, not per service.
+    // Tie a review to the specific booking that was delivered.
+    // Different users (different bookings) CAN all review the same service;
+    // the unique index below enforces ONE review per (booking, service) pair.
     booking: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Booking",
-      required: false,
+      required: true,
     },
 
     name: {
@@ -49,8 +49,10 @@ const reviewSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// One review per BOOKING (prevents double-submit duplicates),
-// but many bookings (many users) can each review the same SERVICE.
-reviewSchema.index({ booking: 1 }, { unique: true, sparse: true });
+// ONE review per (booking, service) pair:
+//  - many different users (each with their own delivered booking) CAN review
+//    the SAME service — uniqueness is per booking, not per service.
+//  - a single booking can never produce two reviews.
+reviewSchema.index({ booking: 1, service: 1 }, { unique: true });
 
 module.exports = mongoose.model("Review", reviewSchema);

@@ -502,7 +502,12 @@ app.get("/v1/booking/:id/can-review", async (req, res) => {
       return res.status(401).json({ success: false, message: "Please login first" });
     }
 
-    const booking = await Booking.findById(req.params.id).populate("service");
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid booking id" });
+    }
+
+    const booking = await Booking.findById(id).populate("service");
 
     if (!booking) {
       return res.status(404).json({ success: false, message: "Booking not found" });
@@ -652,6 +657,38 @@ app.get("/v1/reviews", async (req, res) => {
   }
 });
 
+// ✅ Get the CURRENT user's delivered-but-unreviewed bookings.
+//    Each element is a "Give Review" prompt: user bought, admin delivered
+//    (isCompleted=true), and this user has not reviewed it yet.
+app.get("/v1/reviews/pending", async (req, res) => {
+  try {
+    if (!req.session.userId) {
+      return res.status(401).json({ success: false, message: "Login required" });
+    }
+
+    const pending = await Booking.find({
+      user: req.session.userId,
+      isCompleted: true,
+      isReviewed: false,
+    })
+      .populate("service", "title price image mode")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: pending.length,
+      data: pending.map((b) => ({
+        bookingId: b._id,
+        isCompleted: b.isCompleted,
+        isReviewed: b.isReviewed,
+        service: b.service,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ✅ POST review — only for the user's OWN completed booking
 //    A user can only review a booking that:
 //      1) belongs to them
@@ -729,6 +766,19 @@ app.post("/v1/reviews", async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "You can review only after the admin marks your session as completed",
+      });
+    }
+
+    // 🚫 Unique per (booking, service): friendly early check so a duplicate
+    //    submit never reaches the unique-index error path.
+    const alreadyReviewed = await Review.findOne({
+      booking: booking._id,
+      service: serviceId,
+    });
+    if (alreadyReviewed) {
+      return res.status(409).json({
+        success: false,
+        message: "You have already reviewed this session",
       });
     }
 
@@ -973,11 +1023,20 @@ app.patch("/v1/admin/booking/complete/:id", async (req, res) => {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid booking id" });
+    }
+
     const booking = await Booking.findByIdAndUpdate(
-      req.params.id,
+      id,
       { $set: { isCompleted: true } },
       { new: true }
     ).populate("service").populate("user");
+
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
 
     res.json({
       success: true,
